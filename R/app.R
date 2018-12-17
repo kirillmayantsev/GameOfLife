@@ -1,4 +1,5 @@
 library(ggplot2)
+library(shiny)
 library(R6)
 
 GameOfLife = R6Class("GameOfLife",
@@ -8,6 +9,7 @@ GameOfLife = R6Class("GameOfLife",
       stopifnot(is.numeric(n_row), length(n_row) == 1);
       stopifnot(is.numeric(n_col), length(n_col) == 1);
       
+      # fields init
       private$n_row = n_row;
       private$n_col = n_col;
       private$board_mat =
@@ -15,12 +17,16 @@ GameOfLife = R6Class("GameOfLife",
           0L, nrow = n_row, ncol = n_col,
           dimnames = list(seq_len(n_row), seq_len(n_col))
         );
+      private$board_plot = ggplot() +
+        scale_x_continuous(name = "x") + scale_y_continuous(name = "y") +
+        scale_fill_manual(values = c("red", "green")) +
+        coord_equal(ratio = 1) + guides(fill = FALSE);
+      private$generation_index = 0;
     },
     ## Override default 'print' behavior
     print = function(...) {
-      cat("GameOfLife: \n");
-      cat("  Board height: ", private$n_row, "\n", sep = "");
-      cat("  Board width: ", private$n_col, "\n", sep = "");
+      cat("GameOfLife; board [", private$n_row, " x ", private$n_col, "]: \n", sep = "");
+      cat("  Board generation index: ", private$generation_index, "\n", sep = "");
       
       return(invisible(self));
     },
@@ -29,11 +35,14 @@ GameOfLife = R6Class("GameOfLife",
         private$board_mat[] = rbinom(private$n_row * private$n_col, 1, 0.1);
       }
       
+      private$generation_index = 1;
+      
       return(invisible(self));
     },
     update_game_board = function() {
       n_neighbor_mat = private$obtain_neighbors_amount(private$board_mat);
       private$board_mat = private$apply_survival_rule(private$board_mat, n_neighbor_mat);
+      private$generation_index = private$generation_index + 1;
       
       return(invisible(self));
     },
@@ -41,12 +50,6 @@ GameOfLife = R6Class("GameOfLife",
       
       board_df = private$melt_matrix_to_dataframe(private$board_mat);
       
-      if (is.null(private$board_plot)) {
-        private$board_plot = ggplot() +
-          scale_x_continuous(name = "x") + scale_y_continuous(name = "y") +
-          scale_fill_manual(values = c("red", "green")) +
-          coord_equal(ratio = 1) + guides(fill = FALSE);
-      }
       out_board_plot = private$board_plot +
         geom_rect(
           data = board_df,
@@ -56,9 +59,8 @@ GameOfLife = R6Class("GameOfLife",
       
       return(out_board_plot);
     },
-    
     # To be removed later
-    get_init_state = function() {
+    get_current_state = function() {
       
       return(private$board_mat);
     }
@@ -68,6 +70,7 @@ GameOfLife = R6Class("GameOfLife",
     n_col = NULL,
     board_mat = NULL,
     board_plot = NULL,
+    generation_index = NULL,
     # Private functions
     obtain_neighbors_amount = function(status_mat) {
       stopifnot(min(status_mat) >= 0, max(status_mat) <= 1);
@@ -159,19 +162,64 @@ GameOfLife = R6Class("GameOfLife",
   )
 );
 
-new_game = GameOfLife$new(n_row = 10, n_col = 10);
-new_game$set_init_state();
+#####
+ui = fluidPage(
+  
+  titlePanel("Conway's Game of Life"),
+  
+  sidebarLayout(
+    sidebarPanel(
+      actionButton("init", "Set init"),
+      actionButton("start", "Start"),
+      actionButton("stop", "Stop")
+    ),
+    
+    mainPanel(
+      plotOutput("board_plot")
+    )
+  )
+)
 
-for (i in 1:10) {
-  new_game$plot_game_board();
-  new_game$update_game_board();
-  Sys.sleep(1)
+#####
+server = function(input, output) {
+  
+  new_game = GameOfLife$new(n_row = 50, n_col = 50);
+  
+  game_reactive =
+    reactiveValues(
+      board_ggplot_obj = NULL,
+      timer = NULL
+    );
+  
+  observe({
+    if (!is.null(game_reactive$timer)) {
+      game_reactive$timer();
+      new_game$update_game_board();
+      game_reactive$board_ggplot_obj = new_game$plot_game_board();
+      new_game$print();
+    }
+  })
+  
+  observeEvent(input$init, {
+    new_game$set_init_state();
+    game_reactive$board_ggplot_obj = new_game$plot_game_board();
+    new_game$print();
+  })
+  
+  observeEvent(input$start, {
+    if (is.null(game_reactive$timer)) {
+      game_reactive$timer = reactiveTimer(100)
+    }
+  })
+  
+  observeEvent(input$stop, {
+    game_reactive$timer = NULL
+  })
+  
+  output$board_plot = renderPlot({
+    game_reactive$board_ggplot_obj
+  })
 }
 
-x = new_game$plot_game_board();
-new_game$update_game_board();
-
-xxx = new_game$get_init_state();
-xxx
-
-
+# Run the application 
+shinyApp(ui = ui, server = server)
