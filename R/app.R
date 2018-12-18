@@ -2,6 +2,7 @@ library(ggplot2)
 library(shiny)
 library(R6)
 
+#####
 GameOfLife = R6Class("GameOfLife",
   public = list(
     ## Initialize function
@@ -18,9 +19,10 @@ GameOfLife = R6Class("GameOfLife",
           dimnames = list(seq_len(n_row), seq_len(n_col))
         );
       private$board_plot = ggplot() +
+        guides(fill = FALSE) +
         scale_x_continuous(name = "x") + scale_y_continuous(name = "y") +
         scale_fill_manual(values = c("red", "green")) +
-        coord_equal(ratio = 1) + guides(fill = FALSE);
+        coord_equal(ratio = 1);
       private$generation_index = 0;
     },
     ## Override default 'print' behavior
@@ -32,7 +34,16 @@ GameOfLife = R6Class("GameOfLife",
     },
     set_init_state = function(pattern = "random") {
       if (pattern == "random") {
-        private$board_mat[] = rbinom(private$n_row * private$n_col, 1, 0.1);
+        private$board_mat[] = rbinom(private$n_row * private$n_col, 1, 0.15);
+      }
+      if (pattern == "glider") {
+        if (private$n_row >= 3 && private$n_col >= 3) {
+          private$board_mat[1:3, 1:3] =
+            matrix(
+              c(0, 0, 1, 1, 0, 1, 0, 1, 1),
+              nrow = 3, ncol = 3, byrow = TRUE
+            );
+        }
       }
       
       private$generation_index = 1;
@@ -169,7 +180,19 @@ ui = fluidPage(
   
   sidebarLayout(
     sidebarPanel(
-      actionButton("init", "Set init"),
+      sliderInput("nrow", "Rows number:", value = 20, min = 1, max = 100),
+      sliderInput("ncol", "Cols number:", value = 20, min = 1, max = 100),
+      sliderInput("delay", "Animation delay (seconds):",
+                  value = 1, min = 0.2, max = 2, step = 0.2),
+      radioButtons(
+        "pattern", "Game pattern:",
+        c(
+          "Random" = "random",
+          "Glider" = "glider"
+        )
+      ),
+      actionButton("create", "Create"),
+      actionButton("init", "Init"),
       actionButton("start", "Start"),
       actionButton("stop", "Stop")
     ),
@@ -183,7 +206,7 @@ ui = fluidPage(
 #####
 server = function(input, output) {
   
-  new_game = GameOfLife$new(n_row = 50, n_col = 50);
+  new_game = NULL;
   
   game_reactive =
     reactiveValues(
@@ -198,27 +221,33 @@ server = function(input, output) {
       game_reactive$board_ggplot_obj = new_game$plot_game_board();
       new_game$print();
     }
-  })
+  });
   
-  observeEvent(input$init, {
-    new_game$set_init_state();
+  observeEvent(input$create, {
+    new_game <<- GameOfLife$new(n_row = input$nrow, n_col = input$ncol);
     game_reactive$board_ggplot_obj = new_game$plot_game_board();
     new_game$print();
-  })
+  });
+  
+  observeEvent(input$init, {
+    new_game$set_init_state(pattern = input$pattern);
+    game_reactive$board_ggplot_obj = new_game$plot_game_board();
+    new_game$print();
+  });
   
   observeEvent(input$start, {
     if (is.null(game_reactive$timer)) {
-      game_reactive$timer = reactiveTimer(100)
+      game_reactive$timer = reactiveTimer(1000 * input$delay)
     }
-  })
+  });
   
   observeEvent(input$stop, {
     game_reactive$timer = NULL
-  })
+  });
   
   output$board_plot = renderPlot({
     game_reactive$board_ggplot_obj
-  })
+  });
 }
 
 # Run the application 
