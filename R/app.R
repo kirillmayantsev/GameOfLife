@@ -22,7 +22,7 @@ GameOfLife = R6Class("GameOfLife",
         theme_bw() +
         guides(fill = FALSE) +
         scale_x_continuous(name = "x") + scale_y_continuous(name = "y") +
-        scale_fill_manual(values = c("red", "green"));
+        scale_fill_manual(values = c("white", "black"));
       if (square_ratio) {
         private$board_plot = private$board_plot + coord_equal(ratio = 1);
       }
